@@ -34,6 +34,10 @@ streamlit-dashboard-mcpserver/
 | `get_dashboard_status` | Check if the dashboard is running and on which port |
 | `read_dashboard`       | Read the current `dashboard.py` source |
 
+
+![screenshot1-dashboard]("C:\Users\benij\ds_project\streamlit-dashboard-mcpserver\Screenshot 2026-02-19 222120.png")
+![screenshot2-chat]("C:\Users\benij\ds_project\streamlit-dashboard-mcpserver\Screenshot 2026-02-19 222613.png")
+
 > **Read-only enforced.** `INSERT`, `UPDATE`, `DELETE`, `DROP` and all other write operations are blocked at the server level.
 
 ---
