@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MCP Server Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;700;800&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #080c12;
+    --surface: #0e1520;
+    --border: #1e2d42;
+    --accent-blue: #3b82f6;
+    --accent-cyan: #06b6d4;
+    --accent-green: #10b981;
+    --accent-amber: #f59e0b;
+    --accent-purple: #8b5cf6;
+    --accent-red: #ef4444;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --dim: #1e293b;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    padding: 48px 32px;
+    overflow-x: hidden;
+  }
+
+  /* noise overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
+    pointer-events: none; z-index: 0;
+  }
+
+  .wrap { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+  }
+  h1 span { color: var(--accent-cyan); }
+
+  .subtitle {
+    font-size: 0.75rem;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 52px;
+  }
+
+  /* ── GRID ─────────────────────────────────────────────── */
+  .arch {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: auto auto auto auto;
+    gap: 0;
+    position: relative;
+  }
+
+  /* ── CARDS ────────────────────────────────────────────── */
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 22px;
+    background: var(--surface);
+    position: relative;
+    transition: border-color 0.2s;
+  }
+  .card:hover { border-color: var(--accent-blue); }
+
+  .card-label {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 10px;
+  }
+  .card-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .card-body {
+    font-size: 0.72rem;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+
+  /* pill tags */
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .tag {
+    font-size: 0.65rem;
+    padding: 3px 9px;
+    border-radius: 20px;
+    border: 1px solid;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+  }
+  .tag-blue   { color: var(--accent-blue);   border-color: var(--accent-blue);   background: #3b82f610; }
+  .tag-cyan   { color: var(--accent-cyan);   border-color: var(--accent-cyan);   background: #06b6d410; }
+  .tag-green  { color: var(--accent-green);  border-color: var(--accent-green);  background: #10b98110; }
+  .tag-amber  { color: var(--accent-amber);  border-color: var(--accent-amber);  background: #f59e0b10; }
+  .tag-purple { color: var(--accent-purple); border-color: var(--accent-purple); background: #8b5cf610; }
+  .tag-red    { color: var(--accent-red);    border-color: var(--accent-red);    background: #ef444410; }
+
+  /* ── LAYOUT SECTIONS ──────────────────────────────────── */
+
+  /* Row 0 — Claude Desktop (full width) */
+  .row-client {
+    grid-column: 1 / 4;
+    margin-bottom: 0;
+    border-color: var(--accent-cyan);
+    background: linear-gradient(135deg, #0e1520 70%, #06b6d408);
+    display: flex; align-items: center; gap: 24px;
+  }
+  .row-client .card-label { color: var(--accent-cyan); }
+
+  /* connector between rows */
+  .connector {
+    grid-column: 1 / 4;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 48px;
+    position: relative;
+  }
+  .connector::before {
+    content: '';
+    position: absolute;
+    left: 50%; top: 0;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 100%;
+    background: linear-gradient(to bottom, var(--accent-cyan), var(--accent-blue));
+  }
+  .connector-label {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 14px;
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    position: relative; z-index: 1;
+  }
+
+  /* Row 1 — MCP Core (full width) */
+  .row-core {
+    grid-column: 1 / 4;
+    border-color: var(--accent-blue);
+    background: linear-gradient(135deg, #0e1520 60%, #3b82f608);
+  }
+  .row-core .card-label { color: var(--accent-blue); }
+
+  /* sub-tools row */
+  .tools-grid {
+    grid-column: 1 / 4;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-top: 0;
+  }
+
+  /* tool cards */
+  .tool-sqlite  { border-color: var(--accent-amber);  }
+  .tool-sqlite  .card-label { color: var(--accent-amber); }
+  .tool-dash    { border-color: var(--accent-green);  }
+  .tool-dash    .card-label { color: var(--accent-green); }
+  .tool-rag     { border-color: var(--accent-purple); }
+  .tool-rag     .card-label { color: var(--accent-purple); }
+
+  /* connector row (tall, 3 columns) */
+  .connectors-row {
+    grid-column: 1 / 4;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    height: 48px;
+  }
+  .conn-col {
+    display: flex; justify-content: center;
+    position: relative;
+  }
+  .conn-col::before {
+    content: '';
+    position: absolute;
+    left: 50%; top: 0;
+    transform: translateX(-50%);
+    width: 2px; height: 100%;
+  }
+  .conn-col.c-amber::before  { background: linear-gradient(to bottom, var(--accent-amber),  var(--accent-amber)); }
+  .conn-col.c-green::before  { background: linear-gradient(to bottom, var(--accent-green),  var(--accent-green)); }
+  .conn-col.c-purple::before { background: linear-gradient(to bottom, var(--accent-purple), var(--accent-purple)); }
+
+  /* Row 3 — Backends */
+  .backends-grid {
+    grid-column: 1 / 4;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+  }
+
+  .back-sqlite  { border-color: var(--accent-amber);  background: linear-gradient(135deg, #0e1520, #f59e0b06); }
+  .back-sqlite  .card-label { color: var(--accent-amber); }
+  .back-dash    { border-color: var(--accent-green);  background: linear-gradient(135deg, #0e1520, #10b98106); }
+  .back-dash    .card-label { color: var(--accent-green); }
+  .back-rag     { border-color: var(--accent-purple); background: linear-gradient(135deg, #0e1520, #8b5cf606); }
+  .back-rag     .card-label { color: var(--accent-purple); }
+
+  /* ── RAG PIPELINE ─────────────────────────────────────── */
+  .pipeline {
+    margin-top: 60px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    background: var(--surface);
+  }
+  .pipeline-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--accent-purple);
+    margin-bottom: 24px;
+  }
+  .pipeline-steps {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    overflow-x: auto;
+  }
+  .p-step {
+    flex: 1;
+    min-width: 130px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 14px;
+    background: var(--bg);
+    text-align: center;
+    position: relative;
+  }
+  .p-step-num {
+    font-size: 1.6rem;
+    font-weight: 700;
+    opacity: 0.12;
+    position: absolute;
+    top: 6px; right: 10px;
+    font-family: 'Syne', sans-serif;
+  }
+  .p-step-icon { font-size: 1.4rem; margin-bottom: 8px; }
+  .p-step-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .p-step-desc { font-size: 0.65rem; color: var(--muted); line-height: 1.6; }
+
+  .p-arrow {
+    display: flex; align-items: center; padding: 0 6px;
+    color: var(--muted); font-size: 1rem; flex-shrink: 0;
+  }
+
+  /* ── SCORE TABLE ──────────────────────────────────────── */
+  .score-table {
+    margin-top: 40px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+  .score-table-header {
+    background: var(--dim);
+    padding: 14px 20px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--accent-purple);
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    padding: 11px 20px;
+    text-align: left;
+    font-size: 0.72rem;
+    border-bottom: 1px solid var(--border);
+  }
+  th { color: var(--muted); font-weight: 400; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; }
+  td:last-child { color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .bar-wrap { display: flex; align-items: center; gap: 10px; }
+  .bar {
+    height: 6px; border-radius: 3px;
+    background: currentColor; opacity: 0.7;
+    flex-shrink: 0;
+  }
+  .bar-val { font-size: 0.7rem; font-weight: 600; }
+
+  /* ── ENV VARS ─────────────────────────────────────────── */
+  .envs {
+    margin-top: 40px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    background: var(--surface);
+  }
+  .envs-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--accent-cyan);
+    margin-bottom: 18px;
+  }
+  .env-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .env-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .env-key { font-size: 0.67rem; color: var(--accent-cyan); font-weight: 600; margin-bottom: 3px; }
+  .env-val { font-size: 0.67rem; color: var(--muted); }
+
+  /* ingestion note */
+  .ingest-note {
+    margin-top: 40px;
+    border: 1px solid var(--accent-amber);
+    border-radius: 12px;
+    padding: 18px 22px;
+    background: #f59e0b06;
+    display: flex; gap: 14px; align-items: flex-start;
+  }
+  .ingest-icon { font-size: 1.4rem; flex-shrink: 0; }
+  .ingest-body { font-size: 0.72rem; color: var(--muted); line-height: 1.7; }
+  .ingest-body strong { color: var(--accent-amber); }
+
+  /* footer */
+  .footer {
+    margin-top: 52px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between;
+    font-size: 0.65rem; color: var(--muted);
+  }
+
+  /* animations */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .card, .pipeline, .score-table, .envs, .ingest-note {
+    animation: fadeUp 0.5s ease both;
+  }
+  .row-client  { animation-delay: 0.05s; }
+  .row-core    { animation-delay: 0.15s; }
+  .tools-grid  { animation-delay: 0.25s; }
+  .backends-grid { animation-delay: 0.35s; }
+  .pipeline    { animation-delay: 0.45s; }
+  .score-table { animation-delay: 0.50s; }
+  .envs        { animation-delay: 0.55s; }
+  .ingest-note { animation-delay: 0.60s; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>MCP Server <span>Architecture</span></h1>
+  <p class="subtitle">sqlite · dashboard · rag — unified server</p>
+
+  <div class="arch">
+
+    <!-- CLIENT -->
+    <div class="card row-client">
+      <div>
+        <div class="card-label">Entry Point</div>
+        <div class="card-title">Claude Desktop</div>
+        <div class="card-body">Sends tool-call requests over stdio transport. Receives structured JSON responses.</div>
+      </div>
+      <div class="tags" style="margin-left:auto; flex-direction:column; align-items:flex-start;">
+        <span class="tag tag-cyan">stdio transport</span>
+        <span class="tag tag-cyan">JSON-RPC 2.0</span>
+        <span class="tag tag-cyan">FastMCP protocol</span>
+      </div>
+    </div>
+
+    <!-- CONNECTOR -->
+    <div class="connector" style="grid-column:1/4;">
+      <span class="connector-label">stdio · tool calls &amp; responses</span>
+    </div>
+
+    <!-- MCP CORE -->
+    <div class="card row-core" style="grid-column:1/4;">
+      <div class="card-label">Core</div>
+      <div class="card-title">FastMCP Server &nbsp;·&nbsp; mcp_server.py</div>
+      <div class="card-body">
+        Single process. Registers all tools via <code>@mcp.tool()</code> decorators.
+        Lazy-loads heavy components (embeddings, reranker) on first use.
+        Handles SIGINT / SIGTERM for graceful shutdown.
+      </div>
+      <div class="tags">
+        <span class="tag tag-blue">3 tool groups</span>
+        <span class="tag tag-blue">lazy init</span>
+        <span class="tag tag-blue">env-driven config</span>
+        <span class="tag tag-blue">signal handling</span>
+      </div>
+    </div>
+
+    <!-- TOOL CARDS -->
+    <div class="tools-grid">
+      <div class="card tool-sqlite">
+        <div class="card-label">Tool Group 1</div>
+        <div class="card-title">SQLite Tools</div>
+        <div class="card-body">
+          Read-only query interface.<br>
+          Blocks all write operations via regex guard.
+        </div>
+        <div class="tags">
+          <span class="tag tag-amber">list_tables</span>
+          <span class="tag tag-amber">describe_table</span>
+          <span class="tag tag-amber">sample_table</span>
+          <span class="tag tag-amber">query_database</span>
+        </div>
+      </div>
+
+      <div class="card tool-dash">
+        <div class="card-label">Tool Group 2</div>
+        <div class="card-title">Dashboard Tools</div>
+        <div class="card-body">
+          Writes dashboard.py, auto-installs deps, spawns &amp; manages a Streamlit subprocess.
+        </div>
+        <div class="tags">
+          <span class="tag tag-green">create_dashboard</span>
+          <span class="tag tag-green">read_dashboard</span>
+          <span class="tag tag-green">get_dashboard_status</span>
+          <span class="tag tag-green">stop_dashboard</span>
+        </div>
+      </div>
+
+      <div class="card tool-rag">
+        <div class="card-label">Tool Group 3</div>
+        <div class="card-title">RAG Tools</div>
+        <div class="card-body">
+          Retrieval → reranking → composite scoring pipeline over ingested PDFs.
+        </div>
+        <div class="tags">
+          <span class="tag tag-purple">knowledge_search</span>
+          <span class="tag tag-purple">knowledge_base_info</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- COLUMN CONNECTORS -->
+    <div class="connectors-row">
+      <div class="conn-col c-amber"></div>
+      <div class="conn-col c-green"></div>
+      <div class="conn-col c-purple"></div>
+    </div>
+
+    <!-- BACKENDS -->
+    <div class="backends-grid">
+      <div class="card back-sqlite">
+        <div class="card-label">Backend · SQLite</div>
+        <div class="card-title">database.db</div>
+        <div class="card-body">
+          Opened in <strong>read-only URI mode</strong>.<br>
+          Row factory returns plain dicts → serialised as JSON.
+        </div>
+        <div class="tags">
+          <span class="tag tag-amber">file:db?mode=ro</span>
+          <span class="tag tag-amber">sqlite3.Row</span>
+        </div>
+      </div>
+
+      <div class="card back-dash">
+        <div class="card-label">Backend · Subprocess</div>
+        <div class="card-title">Streamlit :8501</div>
+        <div class="card-body">
+          Launched as a child process via <code>subprocess.Popen</code>.<br>
+          Auto-reload on file save. Terminate on stop call.
+        </div>
+        <div class="tags">
+          <span class="tag tag-green">--server.runOnSave</span>
+          <span class="tag tag-green">headless</span>
+        </div>
+      </div>
+
+      <div class="card back-rag">
+        <div class="card-label">Backend · Vector DB</div>
+        <div class="card-title">ChromaDB (persistent)</div>
+        <div class="card-body">
+          HNSW cosine index. Embeddings via SentenceTransformer bi-encoder.
+          Reranker loaded separately as CrossEncoder.
+        </div>
+        <div class="tags">
+          <span class="tag tag-purple">HNSW · cosine</span>
+          <span class="tag tag-purple">PersistentClient</span>
+          <span class="tag tag-purple">all-MiniLM-L6-v2</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /arch -->
+
+
+  <!-- RAG PIPELINE -->
+  <div class="pipeline">
+    <div class="pipeline-title">▸ RAG Pipeline — knowledge_search()</div>
+    <div class="pipeline-steps">
+      <div class="p-step" style="border-color:#f59e0b30">
+        <div class="p-step-num">1</div>
+        <div class="p-step-icon">🔍</div>
+        <div class="p-step-name" style="color:#f59e0b">Query In</div>
+        <div class="p-step-desc">Natural language question from Claude Desktop</div>
+      </div>
+      <div class="p-arrow">→</div>
+      <div class="p-step" style="border-color:#06b6d430">
+        <div class="p-step-num">2</div>
+        <div class="p-step-icon">⚡</div>
+        <div class="p-step-name" style="color:#06b6d4">Bi-Encoder</div>
+        <div class="p-step-desc">Embeds query → ANN search → top 20 candidates</div>
+      </div>
+      <div class="p-arrow">→</div>
+      <div class="p-step" style="border-color:#3b82f630">
+        <div class="p-step-num">3</div>
+        <div class="p-step-icon">🎯</div>
+        <div class="p-step-name" style="color:#3b82f6">Cross-Encoder</div>
+        <div class="p-step-desc">Reranks each (query, chunk) pair with pointwise scoring</div>
+      </div>
+      <div class="p-arrow">→</div>
+      <div class="p-step" style="border-color:#8b5cf630">
+        <div class="p-step-num">4</div>
+        <div class="p-step-icon">📐</div>
+        <div class="p-step-name" style="color:#8b5cf6">Composite Score</div>
+        <div class="p-step-desc">Weighted fusion of 4 signals into one metric</div>
+      </div>
+      <div class="p-arrow">→</div>
+      <div class="p-step" style="border-color:#10b98130">
+        <div class="p-step-num">5</div>
+        <div class="p-step-icon">📤</div>
+        <div class="p-step-name" style="color:#10b981">JSON Output</div>
+        <div class="p-step-desc">Top-K ranked chunks + full metrics returned to LLM</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCORE TABLE -->
+  <div class="score-table">
+    <div class="score-table-header">Composite Score — Signal Breakdown</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Signal</th>
+          <th>Weight</th>
+          <th>Bar</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="color:#3b82f6; font-weight:600">cosine_similarity</td>
+          <td><span class="bar-val" style="color:#3b82f6">35%</span></td>
+          <td><div class="bar-wrap"><div class="bar" style="width:105px; color:#3b82f6"></div></div></td>
+          <td>Bi-encoder ANN distance → similarity</td>
+        </tr>
+        <tr>
+          <td style="color:#8b5cf6; font-weight:600">rerank_score</td>
+          <td><span class="bar-val" style="color:#8b5cf6">45%</span></td>
+          <td><div class="bar-wrap"><div class="bar" style="width:135px; color:#8b5cf6"></div></div></td>
+          <td>Cross-encoder logit → sigmoid normalised</td>
+        </tr>
+        <tr>
+          <td style="color:#06b6d4; font-weight:600">keyword_overlap</td>
+          <td><span class="bar-val" style="color:#06b6d4">10%</span></td>
+          <td><div class="bar-wrap"><div class="bar" style="width:30px; color:#06b6d4"></div></div></td>
+          <td>Query tokens ∩ chunk tokens / query tokens</td>
+        </tr>
+        <tr>
+          <td style="color:#10b981; font-weight:600">chunk_density</td>
+          <td><span class="bar-val" style="color:#10b981">10%</span></td>
+          <td><div class="bar-wrap"><div class="bar" style="width:30px; color:#10b981"></div></div></td>
+          <td>unique_words / total_words in chunk</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ENV VARS -->
+  <div class="envs">
+    <div class="envs-title">Environment Variables</div>
+    <div class="env-grid">
+      <div class="env-item">
+        <div class="env-key">DB_PATH</div>
+        <div class="env-val">Path to SQLite database file</div>
+      </div>
+      <div class="env-item">
+        <div class="env-key">DASHBOARD_PORT</div>
+        <div class="env-val">Streamlit port (default 8501)</div>
+      </div>
+      <div class="env-item">
+        <div class="env-key">VECTOR_DB_DIR</div>
+        <div class="env-val">ChromaDB persistence directory</div>
+      </div>
+      <div class="env-item">
+        <div class="env-key">RAG_COLLECTION</div>
+        <div class="env-val">ChromaDB collection name</div>
+      </div>
+      <div class="env-item">
+        <div class="env-key">EMBED_MODEL</div>
+        <div class="env-val">SentenceTransformer bi-encoder</div>
+      </div>
+      <div class="env-item">
+        <div class="env-key">RERANK_MODEL</div>
+        <div class="env-val">CrossEncoder reranker model</div>
+      </div>
+      <div class="env-item">
+        <div class="env-key">RAG_TOP_K_RETRIEVE</div>
+        <div class="env-val">ANN candidates before rerank</div>
+      </div>
+      <div class="env-item">
+        <div class="env-key">RAG_TOP_K_RETURN</div>
+        <div class="env-val">Final chunks returned to LLM</div>
+      </div>
+      <div class="env-item">
+        <div class="env-key">WEIGHT_*</div>
+        <div class="env-val">Composite score signal weights</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INGESTION NOTE -->
+  <div class="ingest-note">
+    <div class="ingest-icon">⚠️</div>
+    <div class="ingest-body">
+      <strong>Ingestion is offline — not part of the MCP server.</strong><br>
+      Run <code>python ingest_pdf.py my_doc.pdf</code> separately before using <code>knowledge_search</code>.
+      The script extracts text → sliding-window chunks (512w / 128w overlap) → embeds → upserts into ChromaDB.
+      The MCP server only performs <strong>retrieval</strong>, not ingestion.
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>sqlite-dashboard-rag · FastMCP · stdio transport</span>
+    <span>3 tool groups · 10 tools · 1 process</span>
+  </div>
+
+</div>
+</body>
+</html>

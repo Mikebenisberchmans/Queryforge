@@ -1,2 +1,3 @@
 .venv/
 data/database.db
+data/vector_db
